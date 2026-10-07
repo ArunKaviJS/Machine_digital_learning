@@ -19,7 +19,7 @@ from backend.config import (
 def test_defaults_load_and_validate():
     cfg = load_config(Path("does-not-exist.json"))
     assert cfg["userName"] == "Arun"
-    assert cfg["ai"]["model"] == "qwen2.5:0.5b"
+    assert cfg["ai"]["model"] == "qwen2.5:0.5b-instruct"
     assert cfg["backendPort"] == 8765
 
 
@@ -75,7 +75,7 @@ def test_ensure_user_config_creates_file(tmp_path: Path):
     ensure_user_config(target)
     assert target.exists()
     created = json.loads(target.read_text(encoding="utf-8"))
-    assert created["ai"]["model"] == "qwen2.5:0.5b"
+    assert created["ai"]["model"] == "qwen2.5:0.5b-instruct"
 
 
 def test_save_config_roundtrip(tmp_path: Path):

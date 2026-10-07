@@ -20,6 +20,12 @@ class FakeOSAdapter(OSAdapter):
         self.close_tab_calls = 0
         self.autostart: bool | None = None
         self.close_tab_result = True
+        # system control (scriptable)
+        self.apps: list[dict[str, str]] = []
+        self.launched: list[str] = []
+        self.windows: list[dict[str, Any]] = []
+        self.closed: list[int] = []
+        self.opened_uris: list[str] = []
 
     def get_foreground_window(self) -> dict[str, Any] | None:
         return self.foreground
@@ -36,6 +42,24 @@ class FakeOSAdapter(OSAdapter):
 
     def set_autostart(self, enabled: bool) -> None:
         self.autostart = enabled
+
+    def list_apps(self) -> list[dict[str, str]]:
+        return list(self.apps)
+
+    def launch_app(self, app_id: str) -> bool:
+        self.launched.append(app_id)
+        return True
+
+    def list_windows(self) -> list[dict[str, Any]]:
+        return [w for w in self.windows if w["hwnd"] not in self.closed]
+
+    def close_window(self, hwnd: int) -> bool:
+        self.closed.append(hwnd)
+        return True
+
+    def open_uri(self, uri: str) -> bool:
+        self.opened_uris.append(uri)
+        return True
 
 
 def fg(process_name: str, title: str = "", pid: int = 1, hwnd: int = 1) -> dict[str, Any]:

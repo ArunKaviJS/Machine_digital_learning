@@ -1,0 +1,27 @@
+# Python bytecode / test cache (regenerated automatically)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environment (recreate: python -m venv .venv && .venv\Scripts\python -m pip install -r requirements.txt)
+.venv/
+
+# Logs and scratch output (Arun's real logs live in %APPDATA%\Arun\logs, not here)
+*.log
+
+# Packaging output (PyInstaller, milestone M13)
+build/
+dist/
+*.spec
+
+# Personal files — never commit
+assets/stickers/_old_arun_backup/
+assets/stickers/*/reference_photo.*
+.env
+
+# Local tool / editor / OS settings
+.claude/settings.local.json
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -72,13 +72,19 @@ class ActivityTracker:
             return
         try:
             state = json.loads(raw)
-            heartbeat = float(get_meta(self.db, HEARTBEAT_KEY, "0") or 0)
-            end = max(state["start"], heartbeat)
+            hb_raw = get_meta(self.db, HEARTBEAT_KEY)
+            try:
+                heartbeat = datetime.fromisoformat(hb_raw).timestamp() if hb_raw else 0.0
+            except ValueError:
+                heartbeat = 0.0
+            start = float(state["start"])
+            last = float(state.get("last", start))
+            end = max(start, min(heartbeat or last, last))
             self._write_segments(state["application"], state["website"],
-                                 state.get("window_title"), state["start"], end)
+                                 state.get("window_title"), start, end)
             logger.info(
                 "recovered dangling session %s (%s -> %s)",
-                state["application"], _iso(state["start"]), _iso(end),
+                state["application"], _iso(start), _iso(end),
             )
         except Exception as exc:
             logger.warning("recovery failed: %s", exc)
@@ -98,14 +104,12 @@ class ActivityTracker:
             return
 
         if fg is None:  # lock screen / no window -> treat as away
-            self._close_session(self._last_tick or now)
-            self._last_tick = now
+            self._close_away(now, self.os.get_idle_seconds())
             return
 
         idle = self.os.get_idle_seconds()
         if idle >= self.cfg["idleThresholdSeconds"]:
-            self._close_session(max(self._open["start"], now - idle) if self._open else now)
-            self._last_tick = now
+            self._close_away(now, idle)
             return
 
         # sleep / clock jump: clamp the gap, never count it
@@ -142,9 +146,17 @@ class ActivityTracker:
         self._persist_open()
 
     def close(self) -> None:
-        """Flush the open session (shutdown)."""
-        end = self._open["last"] if self._open else (self.clock())
-        self._close_session(end)
+        """Flush the open session (shutdown): runs until the last tick/now."""
+        if not self._open:
+            return
+        self._close_session(max(self.clock(), self._open["last"]))
+
+    def _close_away(self, now: float, idle: float) -> None:
+        """Close because the user is away / locked: end at last input."""
+        if self._open:
+            end = max(self._open["start"], now - idle)
+            self._close_session(end)
+        self._last_tick = now
 
     async def run(self) -> None:
         """Background loop; every pollSeconds (SKILL §14)."""

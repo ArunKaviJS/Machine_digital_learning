@@ -3,6 +3,11 @@
   "character": "arun",
   "walking": true,
   "walkFacesRight": true,
+  "presence": "on_demand",
+  "callHotkey": "Ctrl+Alt+B",
+  "autoHideSeconds": 45,
+  "idleAppMinutes": 30,
+  "idleAppIgnore": ["ollama app.exe"],
   "fps": 24,
   "backendHost": "127.0.0.1",
   "backendPort": 8765,
@@ -33,9 +38,9 @@
   "ai": {
     "enabled": true,
     "host": "http://localhost:11434",
-    "model": "qwen2.5:0.5b",
+    "model": "qwen2.5:0.5b-instruct",
     "timeoutSeconds": 15,
-    "keepAlive": 0,
+    "keepAlive": "5m",
     "logPrompts": false
   }
 }

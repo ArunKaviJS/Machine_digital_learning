@@ -10,14 +10,14 @@ Tick them off as you go, and tell the AI when something is done (it will record 
 - [ ] **Python 3.11 or 3.12**: `winget install Python.Python.3.12`. Then check `python --version`.
 - [ ] **ffmpeg** (for character video → frames): `winget install Gyan.FFmpeg`. Open a new terminal and run `ffmpeg -version`.
 - [ ] **Ollama for Windows**: download from https://ollama.com/download, or `winget install Ollama.Ollama`.
-- [ ] **Pull the small model** (~400 MB):
+- [ ] **Pull the small model** (~400 MB). *Installed on this machine as `qwen2.5:0.5b-instruct` (that exact tag is what the config uses — D14):*
   ```
-  ollama pull qwen2.5:0.5b
+  ollama pull qwen2.5:0.5b-instruct
   ```
   Optional stronger model (~1 GB) if intent parsing is poor: `ollama pull qwen2.5:1.5b`.
 - [ ] **Test Ollama works** (PowerShell):
   ```
-  ollama run qwen2.5:0.5b "Reply with only {\"ok\":true}"
+  ollama run qwen2.5:0.5b-instruct "Reply with only {\"ok\":true}"
   ```
   Then check the API: `curl http://localhost:11434/api/tags` should list the model.
 - [ ] **Docker: not needed.** Skip it.
@@ -90,24 +90,104 @@ The guard sends **Ctrl+W** to your browser. Test carefully:
 
 ## E. Character artwork (needed for M11)
 
-You can start with no artwork (the AI will use a placeholder shape), but for the real look:
+You can start with no artwork (the AI uses an SVG placeholder matching your described
+look — see `client/animation.py` / `_paint_placeholder` and D17 in CONTEXT.md), but for
+the real look, generate art from the full character spec below.
 
-1. **Base image** (ChatGPT image generation or Gemini, free tier is fine). Prompt (edit the bracket parts):
-   > 3D Pixar-style animated character of [describe Arun, e.g. a friendly guy with messy hair and a short beard], full body, standing facing the camera, friendly smile, hands in pockets, wearing [outfit]. Plain solid white background, soft studio lighting, entire body visible including shoes.
+> **AI AGENT — read this when the human attaches/pastes generated character image(s)
+> in any future chat (this may be a different session than the one that wrote this
+> file — trust this block, not your own memory):**
+> 1. For each image the human gives you, work out which pose it's for. Ask the human
+>    if it's not obvious from their message or the image itself (compare against the
+>    13-state list below — IDLE, WALK, GREETING, HAPPY, WATER, WARN, ANGRY, THINKING,
+>    ANSWERING, CONFUSED, WORKING, SUCCESS, SLEEP).
+> 2. Read the image with the Read tool first (always — never copy a file you haven't
+>    looked at), then save it as `assets/stickers/arun/<pose>.png` using the **lowercase
+>    animation key** from the "Mapping" list below (e.g. a GREETING image -> `greeting.png`,
+>    not `GREETING.png` or `greet.png` — `client/animation.py`'s `resolve_pose_frames`
+>    does an exact-match lookup).
+> 3. If the human gives only one image (e.g. just a base/idle portrait), save it as
+>    `idle.png` only — don't guess at the other 12 poses. `AnimationPlayer` already
+>    prefers a real `<pose>.png` over the SVG placeholder per-pose, independently, so
+>    partial art is fine: idle shows the real art, every other pose still shows the
+>    SVG placeholder until its own image arrives.
+> 4. If the human gives a short video/animated clip (e.g. for `walk`), don't try to
+>    save it directly — `client/animation.py` expects either `<pose>.png` or a
+>    `<pose>/0001.png, 0002.png, ...` frame sequence, and there is no frame-extraction
+>    tool yet (`tools/import_character.py` from the original plan was never built,
+>    since single static images turned out to be the actual workflow). Tell the human
+>    this and ask whether to (a) extract frames with ffmpeg into `<pose>/NNNN.png`
+>    yourself if ffmpeg is available, or (b) just use a single representative frame as
+>    `<pose>.png` for now.
+> 5. No code changes are needed for any of this — `CharacterWindow`/`AnimationPlayer`
+>    already load from `assets/stickers/arun/` automatically. After saving, mention
+>    it in CONTEXT.md's session log and file inventory (rule 3 in SKILL.md §0), and
+>    update the "artwork ready?" open question in CONTEXT.md §9 if all 13 are in.
 
-   Save as `idle.png`.
-2. **Animations** (Kling AI or similar image-to-video, start image = `idle.png`). Use short 3–5 s clips, plain white background, static camera, full body visible:
-   - `walk.mp4`: turns to the side and walks in place facing right, relaxed walk cycle, loopable.
-   - `water.mp4`: pulls out a water bottle and offers it to the viewer, holds the pose.
-   - `happy`: laughs, thumbs up. `warn`: crosses arms, raises an eyebrow, shakes head. `angry`: frowns, points at the camera.
-   - **New for Arun (not in the original guide):** `smile` (small friendly smile) and `wave` (waves hello). Until you make them, the AI can reuse `happy` and `idle`.
-3. Put everything in one folder, e.g. `C:\Users\<you>\Downloads\arun-poses` (names: `idle.png`, `walk.mp4`, `water.mp4`, `happy.mp4`, `warn.png`, `angry.png`, ...).
+**Reference photo:** saved at `assets/stickers/arun/reference_photo.webp` (your own
+photo, provided 2026-10-07 — use it as the identity reference when generating art;
+do not redesign the character's identity independently).
+
+**Full character spec** (paste this — plus the reference photo — into an image
+generator that accepts image input, e.g. ChatGPT image generation, Gemini, or
+Midjourney with `--cref`):
+
+> Use this photo as the identity reference for the character. The attached photo is
+> me. Do not redesign the character's identity independently.
+>
+> Character: a Windows 11 desktop companion ("Bro"/Arun). Stylized version of the
+> person in the photo — NOT photorealistic. Preserve: curly/wavy black hair, facial
+> structure, beard and moustache, skin tone, face proportions, hairstyle, casual
+> confident appearance. Style: polished 2D stylized illustration / game-character
+> style, friendly, slightly mischievous, confident, expressive, playful, recognizable
+> even at small desktop sizes. Keep face, hairstyle, clothing, proportions, skin tone,
+> art style and accessories identical across every state below.
+>
+> States to generate (consistent character, same outfit/proportions throughout):
+> **IDLE** (relaxed stand, slight smile, friendly eyes) · **WALK** (natural walk
+> cycle, arms move slightly, not running) · **GREETING** (click reaction: small
+> wave/hand gesture, head tilt, alert friendly smile) · **HAPPY** (bigger smile,
+> bright eyes, small celebratory/thumbs-up gesture) · **WATER** (points toward a
+> glass/bottle, slightly concerned-but-friendly) · **WARN** (raised eyebrow, serious
+> but not threatening, arms crossed or pointing) · **ANGRY** (comedic annoyed face,
+> narrowed eyes, crossed arms — stays friendly underneath, never violent/scary) ·
+> **THINKING** (hand near chin, head tilt, eyes up/sideways — brief state) ·
+> **ANSWERING** (relaxed confident posture, slight nod) · **CONFUSED** (raised
+> eyebrow, head tilt, subtle shrug — not stupid-looking) · **WORKING** (focused,
+> small motion indicating activity, e.g. during a file-tidy operation) · **SUCCESS**
+> (proud smile, thumbs up, small celebration) · **SLEEP** (relaxed, sleepy, eyes
+> occasionally closing — quiet/DND state).
+>
+> Desktop requirements: transparent background (no background at all, PNG alpha),
+> full body visible, plain/no scenery, suitable for a small on-screen sprite, not
+> photorealistic rendering, consistent identity in every image.
+
+(The full original spec with personality notes, interaction-flow description, and the
+golden-rule architecture note is preserved in the project's session history if you need
+the complete wording again — the prompt above is the condensed, generation-ready form.)
+
+**Mapping to this project's animation keys** (`client/animation.py` / backend
+`animation` field, SKILL §18): `idle`, `walk`, `greeting` (replaces the old `wave` for
+click reactions), `happy`, `water`, `warn`, `angry`, `thinking`, `answering`,
+`confused`, `working`, `success`, `sleep`. (`smile`/`wave` still exist for backward
+compatibility but `greeting` is now what the client uses on click.)
+
+1. Generate a base `idle.png` first (full body, transparent background) using the
+   prompt above with the reference photo attached.
+2. For each other state, either regenerate with the same reference + a line like
+   "same character, WALK state: ..." (consistency prompting), or animate from
+   `idle.png` with an image-to-video tool (Kling AI etc.) for `walk`, 3–5 s loopable
+   clips, plain/transparent background, static camera, full body visible.
+3. Put everything in one folder, e.g. `C:\Users\<you>\Downloads\arun-poses`, named
+   after the animation keys above: `idle.png`, `walk.mp4` (or `walk/0001.png...`),
+   `greeting.png`, `happy.png`, `water.png`, `warn.png`, `angry.png`, `thinking.png`,
+   `answering.png`, `confused.png`, `working.png`, `success.png`, `sleep.png`.
 4. When the AI has built `tools/import_character.py`, run:
    ```
    python tools\import_character.py arun C:\Users\<you>\Downloads\arun-poses
    ```
    First run `--find-loop walk.mp4` and trim as it suggests so the walk doesn't "jump".
-- [ ] The free tiers have daily limits. Generate clips over a few days if needed.
+- [ ] The free tiers have daily limits. Generate images over a few days if needed.
 
 ## F. Choices only you can make
 
@@ -133,6 +213,58 @@ Tell the AI your answers so it records them in `CONTEXT.md`:
 - [ ] Demo mode closes a disposable YouTube tab at 30 s.
 - [ ] "Organize my downloads" → counts shown → YES → files sorted → "undo" restores everything.
 - [ ] Restart the PC / app: today's usage and water count are still there.
+
+## G2. How to run and test (backend)
+
+**Run the test suite:**
+```
+python -m pytest -q
+```
+Expect `259 passed`. (Tests never touch `%APPDATA%\Arun` — each uses a temp DB/config via `tests/conftest.py`.)
+
+**Start the backend standalone:**
+```
+python run.py --backend-only
+```
+This logs a line like `API token: <random-string>` — copy it, you need it for every
+POST/PUT/DELETE request and for the WebSocket. `GET /health` (and other safe GET
+endpoints) need no token. The token is new every launch; there is no way to run
+without one (by design — SKILL §18 security).
+
+Check it's up: `curl http://127.0.0.1:8765/health` → `{"status":"ok",...}`.
+
+**Call an authenticated endpoint (PowerShell example):**
+```
+$TOKEN = "paste-the-token-here"
+curl -H "X-Arun-Token: $TOKEN" -X POST http://127.0.0.1:8765/water/drink
+```
+A request with no `X-Arun-Token` header gets `401`. A request carrying an `Origin`
+header (i.e. from a browser page, not a local script) gets `403` — this is
+intentional anti-CSRF behaviour, not a bug.
+
+**Browse the live API docs:** open `http://127.0.0.1:8765/docs` in a browser (Swagger UI)
+while the backend is running. You can try every endpoint from there, but you'll still
+need to paste the token into the "Authorize" field for anything other than GET.
+
+**Postman / manual-test checklist** (what the AI already verified live on 2026-10-07 —
+re-run this after any backend change before trusting it):
+- [ ] `GET /health` → `ai.available: true` (means Ollama is reachable)
+- [ ] `GET /quick-questions` → 11 items
+- [ ] `POST /ask/quick` for each of the 11 `question_id`s → 200 + real text
+- [ ] `POST /ask {"text": "how much screen time today"}` → instant (rules, no AI)
+- [ ] `POST /ask {"text": "is youtube eating my day"}` → takes a few seconds (AI), correct answer
+- [ ] `POST /ask {"text": "what is the meaning of life"}` → clarification message
+- [ ] `POST /water/drink`, `GET /water/today` → count increments
+- [ ] `GET /guard/status`, `POST /pause`, `POST /resume`
+- [ ] `GET /usage/summary?period=today`
+- [ ] `GET /settings` (no `apiToken` in response), `PUT /settings` with a harmless key
+- [ ] `POST /tidy/propose {"folder":"downloads"}` → counts only, **nothing moves**
+      (do NOT call `/tidy/confirm` against a real folder unless you're ready for files
+      to actually move — test confirm/undo against a disposable folder, or trust
+      `pytest tests/test_tidy_service.py`, which already covers it in an isolated temp dir)
+- [ ] A request with no token → `401`
+- [ ] A request with an `Origin` header → `403`
+- [ ] Stop the server (Ctrl+C, or close the terminal)
 
 ## H. Later / optional
 

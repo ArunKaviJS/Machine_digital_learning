@@ -35,5 +35,6 @@ def cfg(tmp_config: Path, tmp_path: Path) -> dict:
 @pytest.fixture()
 def client(cfg: dict) -> TestClient:
     app = create_app(cfg, start_services=False)  # no tracker/OS calls in API tests
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Arun-Token": app.state.api_token}) as c:
+        c.app.state.ai_gateway = None  # API tests must never hit real Ollama
         yield c

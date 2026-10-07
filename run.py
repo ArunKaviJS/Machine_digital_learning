@@ -20,12 +20,12 @@ from backend.logging_setup import setup_logging
 logger = logging.getLogger("arun.run")
 
 
-def _run_backend(cfg: dict[str, Any]) -> None:
+def _run_backend(cfg: dict[str, Any], api_token: str | None = None) -> None:
     import uvicorn
 
     from backend.main import create_app
 
-    app = create_app(cfg)
+    app = create_app(cfg, api_token=api_token)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -74,13 +74,17 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
     ensure_user_config()
     cfg = load_config()
+    import secrets
+    api_token = secrets.token_urlsafe(32)
+    cfg["apiToken"] = api_token
     logger.info("config loaded (user=%s)", cfg["userName"])
 
     if args.backend_only:
-        _run_backend(cfg)
+        logger.info("API token: %s", api_token)
+        _run_backend(cfg, api_token=api_token)
         return 0
 
-    thread = threading.Thread(target=_run_backend, args=(cfg,), daemon=True,
+    thread = threading.Thread(target=_run_backend, args=(cfg, api_token), daemon=True,
                               name="arun-backend")
     thread.start()
     if not wait_for_health(cfg):

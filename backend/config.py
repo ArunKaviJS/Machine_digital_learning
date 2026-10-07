@@ -18,12 +18,18 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.default.json"
 
-VALID_ANIMATIONS = {"idle", "walk", "smile", "wave", "warn", "angry", "happy", "water"}
+VALID_ANIMATIONS = {
+    "idle", "walk", "smile", "wave", "warn", "angry", "happy", "water",
+    # extended character-state system (character spec, 2026-10-07):
+    "greeting", "thinking", "answering", "confused", "working", "success", "sleep",
+}
 VALID_CLOSE_MODES = {"tabs", "window"}
+VALID_PRESENCE = {"on_demand", "always"}
 KNOWN_INTENTS = {
     "usage_query", "compare_usage", "top_app", "screen_time", "longest_session",
     "most_active_hour", "compare_days", "water_status", "log_water",
-    "last_water_reminder", "tidy_folder", "undo_tidy", "unknown",
+    "last_water_reminder", "tidy_folder", "undo_tidy", "open_site",
+    "close_site_tab", "open_app", "close_app", "open_settings", "unknown",
 }
 VALID_PERIODS = {"today", "yesterday", "this_week", "last_week", "last_7_days", "this_month"}
 VALID_COMPARISONS = {"average", "yesterday", "last_week", "none"}
@@ -99,7 +105,16 @@ def validate_config(cfg: dict[str, Any]) -> None:
     ):
         raise ConfigError("siteMatchers must map site -> list of title keywords")
 
-    for key in ("browsers", "dndApps", "tidyFolders"):
+    if cfg.get("presence", "on_demand") not in VALID_PRESENCE:
+        raise ConfigError(f"presence must be one of {sorted(VALID_PRESENCE)}")
+    if not isinstance(cfg.get("callHotkey", ""), str):
+        raise ConfigError("callHotkey must be a string like 'Ctrl+Alt+B'")
+    for key in ("autoHideSeconds", "idleAppMinutes"):
+        value = cfg.get(key, 1)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ConfigError(f"{key} must be a positive integer, got {value!r}")
+
+    for key in ("browsers", "dndApps", "tidyFolders", "idleAppIgnore"):
         value = cfg.get(key)
         if not isinstance(value, list) or not all(isinstance(s, str) for s in value):
             raise ConfigError(f"{key} must be a list of strings")

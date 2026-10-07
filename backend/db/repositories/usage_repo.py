@@ -113,3 +113,11 @@ class UsageRepo:
             " GROUP BY website ORDER BY s DESC LIMIT ?",
             (start_date, end_date, limit),
         )
+
+    def top_applications(self, start_date: str, end_date: str, limit: int = 10) -> list[sqlite3.Row]:
+        return self.db.query(
+            "SELECT application, SUM(duration_seconds) AS s FROM usage_sessions"
+            " WHERE date BETWEEN ? AND ?"
+            " GROUP BY application ORDER BY s DESC LIMIT ?",
+            (start_date, end_date, limit),
+        )
