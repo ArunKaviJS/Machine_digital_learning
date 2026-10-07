@@ -1,0 +1,41 @@
+{
+  "userName": "Arun",
+  "character": "arun",
+  "walking": true,
+  "walkFacesRight": true,
+  "fps": 24,
+  "backendHost": "127.0.0.1",
+  "backendPort": 8765,
+  "databasePath": "",
+  "waterIntervalMinutes": 45,
+  "waterDailyTarget": 8,
+  "waterSnoozeMinutes": 10,
+  "distractingSites": ["youtube.com", "instagram.com"],
+  "siteMatchers": {
+    "youtube.com": ["YouTube"],
+    "instagram.com": ["Instagram"]
+  },
+  "nagAfterMinutes": 15,
+  "closeAfterMinutes": 25,
+  "warningSeconds": 60,
+  "nagRepeatSeconds": 120,
+  "breakResetMinutes": 10,
+  "closeMode": "tabs",
+  "pollSeconds": 2,
+  "idleThresholdSeconds": 120,
+  "maxGapSeconds": 120,
+  "trackAllApps": true,
+  "storeTitles": false,
+  "browsers": ["chrome.exe", "msedge.exe", "brave.exe", "firefox.exe", "opera.exe", "vivaldi.exe"],
+  "dndApps": ["zoom.exe", "teams.exe", "ms-teams.exe"],
+  "tidyFolders": ["downloads", "desktop", "documents", "pictures", "videos"],
+  "demoMode": false,
+  "ai": {
+    "enabled": true,
+    "host": "http://localhost:11434",
+    "model": "qwen2.5:0.5b",
+    "timeoutSeconds": 15,
+    "keepAlive": 0,
+    "logPrompts": false
+  }
+}
