@@ -25,12 +25,15 @@ def _epoch(iso_timestamp: str) -> float:
 class WaterService:
     def __init__(self, db: Database, config: dict[str, Any],
                  clock: Callable[[], float] = time.time,
-                 today_fn: Callable[[], datetime.date] = datetime.date.today):
+                 today_fn: Callable[[], datetime.date] | None = None):
         self.db = db
         self.repo = WaterRepo(db)
         self.config = config
         self.clock = clock
-        self.today_fn = today_fn
+        # "today" comes from the same clock that stamps each drink: with two
+        # sources a drink logged on one date was counted on another (zero)
+        self.today_fn = today_fn or (
+            lambda: datetime.datetime.fromtimestamp(self.clock()).astimezone().date())
         # pin the first reminder to service start (persisted; see next_due)
         self.next_due()
 

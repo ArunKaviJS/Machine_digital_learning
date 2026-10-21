@@ -13,6 +13,7 @@ import time
 from typing import Any, Callable
 
 from backend.os_integration.helpers import app_identity
+from backend.services.character_service import act_then
 
 PROMPT_GAP_SECONDS = 120.0     # minimum spacing between two questions
 PENDING_TTL_SECONDS = 600.0    # unanswered question -> treat as "keep it"
@@ -23,9 +24,11 @@ DEMO_PROMPT_GAP_SECONDS = 10.0
 class IdleAppService:
     def __init__(self, config: dict[str, Any], os_adapter,
                  is_paused: Callable[[], bool] = lambda: False,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time,
+                 character: Any | None = None):
         self.config = config
         self.os = os_adapter
+        self.character = character  # walks to the X and presses it first
         self.is_paused = is_paused
         self.clock = clock
         self._apps: dict[str, dict[str, Any]] = {}  # key -> {name, last_active}
@@ -116,8 +119,10 @@ class IdleAppService:
         if not close:
             self._kept.add(key)
             return {"text": f"Okay, I'll leave {name} open, bro.", "animation": "smile"}
-        closed = sum(1 for win in self.os.list_windows()
-                     if app_identity(win)[0] == key and self.os.close_window(win["hwnd"]))
+        windows = [win for win in self.os.list_windows() if app_identity(win)[0] == key]
+        if windows:  # the cat walks to the app's X and presses it, then it closes
+            act_then(self.character, "close", windows[0]["hwnd"], name)
+        closed = sum(1 for win in windows if self.os.close_window(win["hwnd"]))
         if closed:
             return {"text": f"Closing {name}, bro. If there's unsaved work, "
                             f"it'll ask you first.", "animation": "happy"}

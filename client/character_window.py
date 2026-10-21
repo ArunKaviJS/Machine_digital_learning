@@ -22,14 +22,17 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QByteArray, QPoint, QRectF, Qt, QTimer
-from PyQt6.QtGui import QMouseEvent, QPainter, QPaintEvent, QTransform
+from PyQt6.QtGui import QCursor, QMouseEvent, QPainter, QPaintEvent, QTransform
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QInputDialog, QLabel, QWidget
 
 from client.animation import AnimationPlayer
-from client.placeholder_svg import ANIMATION_CYCLE, character_svg
+from client.chat_window import ChatWindow
+from client import cat_svg, placeholder_svg
+from client.placeholder_svg import ANIMATION_CYCLE
 from client.popups import CommandsPanel, GuardBanner, QuestionPopup, WaterReminderPopup
-from client.walk_area import random_target, roam_bounds, step_toward
+from client.walk_area import (motion_targets, paw_window_target, physical_to_logical,
+                              random_target, roam_bounds, step_toward)
 from client.ws_client import EventClient
 
 logger = logging.getLogger("arun.client")
@@ -37,9 +40,14 @@ logger = logging.getLogger("arun.client")
 CHAR_WIDTH = 160
 CHAR_HEIGHT = 220
 WALK_SPEED = 4.0          # px per tick
+RUN_SPEED = 9.0           # spoken "come here" / "walk around"
+ACT_WALK_SECONDS = 1.4    # walk to a window button in at most this long
+PAW_REACH_MS = 350        # reach toward the button...
+PAW_PRESS_MS = 300        # ...press it (then the backend closes/minimizes)
 CLICK_DRAG_THRESHOLD = 4   # px: more than this between press/release = a drag
 IDLE_PAUSE_TICKS_RANGE = (24, 96)  # ~1-4s at 24fps between wanders
 BUBBLE_VISIBLE_MS = 2500
+ASK_TIMEOUT_S = 120       # /ask may run several agent steps
 
 # One-click commands in the right-click CommandsPanel (SKILL §7): these go
 # straight to the backend with no secondary dialog window to open/focus — a
@@ -95,7 +103,17 @@ class SpeechBubble(QWidget):
         self.resize(self._label.size())
         self.move(anchor_global.x() - self.width() // 2, anchor_global.y() - self.height() - 12)
         self.show()
-        self._hide_timer.start(BUBBLE_VISIBLE_MS)
+        # long replies (agent reports, PC specs) need reading time: ~60 ms/char
+        self._hide_timer.start(min(20000, max(BUBBLE_VISIBLE_MS, len(text) * 60)))
+
+
+# body animations read better when they play a few full cycles
+_LONG_POSES = {"dance": 5000, "spin": 3000, "laugh": 3500, "jump": 3000,
+               "sad": 4000, "love": 3500, "sleep": 8000}
+
+
+def _reaction_ms(pose: str) -> int:
+    return _LONG_POSES.get(pose, 2500)
 
 
 def _alive_visible(widget: QWidget | None) -> bool:
@@ -148,6 +166,13 @@ class CharacterWindow(QWidget):
         self._dragging = False
         self._svg_cache: dict[str, QSvgRenderer] = {}
         self._wander_target: tuple[float, float] | None = None
+        self._motion_path: list[tuple[float, float]] = []  # spoken moves
+        self._motion_pose = "walk"
+        self._motion_speed: float | None = None   # set for button walks
+        self._on_arrive = None                    # callback at the end of a walk
+        self._acting = False                      # walking to / pressing a button
+        # the character drawing: "cat" (default) or the old "droplet"
+        self._svg = cat_svg if config.get("characterStyle", "cat") == "cat" else placeholder_svg
         self._idle_ticks_left = 0
         self._anim_frame = 0
         self._bubble = SpeechBubble()
@@ -157,6 +182,7 @@ class CharacterWindow(QWidget):
         self._water_popup: WaterReminderPopup | None = None
         self._commands_panel: CommandsPanel | None = None
         self._question_popup: QuestionPopup | None = None
+        self._chat: ChatWindow | None = None  # created on first use, kept
         self._idle_question_key: str | None = None
         self._auto_hide_timer = QTimer(self)
         self._auto_hide_timer.setSingleShot(True)
@@ -254,8 +280,9 @@ class CharacterWindow(QWidget):
     def _busy(self) -> bool:
         """Never vanish mid-conversation: popups open or a reply pending."""
         popups = (self._water_popup, self._question_popup, self._commands_panel,
-                  self._guard_banner)
-        return self.player.pose == "thinking" or any(_alive_visible(p) for p in popups)
+                  self._guard_banner, self._chat)
+        return (self.player.pose == "thinking" or self._acting
+                or any(_alive_visible(p) for p in popups))
 
     def _maybe_auto_hide(self) -> None:
         if self._busy():
@@ -302,7 +329,7 @@ class CharacterWindow(QWidget):
     def _svg_renderer_for(self, pose: str, frame: int) -> QSvgRenderer:
         key = f"{pose}:{frame % ANIMATION_CYCLE}"
         if key not in self._svg_cache:
-            svg = character_svg(pose, frame % ANIMATION_CYCLE)
+            svg = self._svg.character_svg(pose, frame % ANIMATION_CYCLE)
             self._svg_cache[key] = QSvgRenderer(QByteArray(svg.encode()))
         return self._svg_cache[key]
 
@@ -328,7 +355,9 @@ class CharacterWindow(QWidget):
     def _on_tick(self) -> None:
         self.player.advance()
         self._anim_frame += 1
-        if self.walking_enabled and self.player.pose in ("idle", "walk"):
+        if self._motion_path:
+            self._motion_step()
+        elif self.walking_enabled and self.player.pose in ("idle", "walk"):
             if self._idle_ticks_left > 0:
                 self._idle_ticks_left -= 1
                 self.player.set_pose("idle")
@@ -348,6 +377,89 @@ class CharacterWindow(QWidget):
         if arrived:
             self._wander_target = None
             self._idle_ticks_left = random.randint(*IDLE_PAUSE_TICKS_RANGE)
+
+    # -- spoken motion ("come here", "go left", "walk around") -----------
+    def perform_motion(self, motion: str | None) -> None:
+        if not motion or not self.isVisible():
+            return
+        cursor = QCursor.pos()
+        screen = self.screen() or QApplication.primaryScreen()
+        area = screen.availableGeometry()
+        home = (float(area.right() - self.width() - 24), float(area.bottom() - self.height()))
+        self._motion_path = motion_targets(
+            motion, self._x, self._y, self._roam_bounds(), (cursor.x(), cursor.y()),
+            home, self.width(), self.height())
+        self._motion_pose = "run" if motion in ("to_cursor", "roam") else "walk"
+        self._motion_speed, self._on_arrive = None, None
+        self._reaction_timer.stop()
+
+    def _motion_step(self) -> None:
+        self.player.set_pose(self._motion_pose)
+        speed = self._motion_speed or (RUN_SPEED if self._motion_pose == "run" else WALK_SPEED)
+        target_x, target_y = self._motion_path[0]
+        self._x, self._y, self.facing_right, arrived = step_toward(
+            self._x, self._y, target_x, target_y, speed)
+        self.move(int(self._x), int(self._y))
+        if arrived:
+            self._motion_path.pop(0)
+            if not self._motion_path:
+                arrive, self._on_arrive, self._motion_speed = self._on_arrive, None, None
+                if arrive is not None:
+                    arrive()
+                else:
+                    self._react("happy", 1500)
+        self._touch()
+
+    # -- walk to a window's button and press it (backend "character_act") --
+    def _on_character_act(self, payload: dict) -> None:
+        """The backend is about to close / minimize / maximize a window: walk
+        so the paw lands on that window's real button, reach, press, report
+        back (then the backend acts), and walk home again."""
+        act_id = payload.get("id")
+        button = physical_to_logical(float(payload.get("x", 0)), float(payload.get("y", 0)),
+                                     self._screens())
+        target_x, target_y = paw_window_target(button, self._paw_offset())
+        self._acting = True
+        self._reaction_timer.stop()
+        self._bubble.hide()
+        self._motion_path = [(target_x, target_y)]
+        fps = max(1, int(self.config.get("fps", 24)))
+        distance = ((target_x - self._x) ** 2 + (target_y - self._y) ** 2) ** 0.5
+        self._motion_speed = max(RUN_SPEED, distance / (ACT_WALK_SECONDS * fps))
+        self._motion_pose = "run"
+        self._on_arrive = lambda: self._paw_reach(act_id)
+
+    def _paw_reach(self, act_id: str) -> None:
+        self.facing_right = True  # the paw tip is drawn on the right
+        self.player.set_pose("reach")
+        QTimer.singleShot(PAW_REACH_MS, lambda: self._paw_press(act_id))
+
+    def _paw_press(self, act_id: str) -> None:
+        self.player.set_pose("press")
+        QTimer.singleShot(PAW_PRESS_MS, lambda: self._paw_done(act_id))
+
+    def _paw_done(self, act_id: str) -> None:
+        self._call_api("post", f"/character/done/{act_id}")  # backend acts now
+        self._react("success", 1200)
+        QTimer.singleShot(1300, self._act_finished)
+
+    def _act_finished(self) -> None:
+        self._acting = False
+        if self.presence != "always":
+            self.perform_motion("home")
+
+    def _paw_offset(self) -> tuple[float, float]:
+        """Paw tip inside this window (the SVG is 200 x 300, centred)."""
+        box_w = min(self.width(), self.height() * 200 / 300)
+        x0 = (self.width() - box_w) / 2
+        tip_x, tip_y = self._svg.PAW_TIP
+        return x0 + tip_x * box_w / 200, tip_y * self.height() / 300
+
+    @staticmethod
+    def _screens() -> list[tuple[int, int, int, int, float]]:
+        return [(s.geometry().x(), s.geometry().y(), s.geometry().width(),
+                 s.geometry().height(), s.devicePixelRatio())
+                for s in QApplication.screens()]
 
     # -- mouse: click vs drag --------------------------------------------
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
@@ -395,6 +507,7 @@ class CharacterWindow(QWidget):
             (label, (lambda t=text: self._ask_text(t))) for label, text in QUICK_COMMANDS
         ]
         items += [
+            ("Chat with Bro 💬", self.open_chat),
             ("Ask Bro (type your own)...", self._action_ask),
             ("Remind me to drink now", self._action_drink_reminder),
             ("Pause Arun (DND)", self._action_toggle_pause),
@@ -425,23 +538,48 @@ class CharacterWindow(QWidget):
         self._ask_text(text)
 
     def _ask_text(self, text: str) -> None:
-        self._react("thinking", duration_ms=15000)  # fallback if the reply never arrives
+        # the agent may take several think/act steps: wait up to ASK_TIMEOUT_S
+        self._react("thinking", duration_ms=ASK_TIMEOUT_S * 1000)  # fallback if no reply
         self._touch()
         if self.api is None:
             return
         anchor = self._anchor()
-        self.api.call("post", "/ask", json={"text": text},
+        self.api.call("post", "/ask", json={"text": text}, timeout=ASK_TIMEOUT_S,
                       on_done=lambda result: self._on_ask_response(result, anchor),
                       on_error=lambda err: self._on_ask_error(anchor))
 
     def _on_ask_response(self, result: dict, anchor: QPoint) -> None:
-        self._react(result.get("animation") or "idle")
+        pose = result.get("animation") or "idle"
+        self._react(pose, _reaction_ms(pose))
+        self.perform_motion((result.get("data") or {}).get("motion"))
         self._bubble.show_message(result.get("text") or "...", anchor)
         self._touch()
 
     def _on_ask_error(self, anchor: QPoint) -> None:
         self._react("confused")
         self._bubble.show_message("Couldn't reach the backend, bro.", anchor)
+        self._touch()
+
+    def open_chat(self) -> None:
+        """Chat window: a running conversation (questions, follow-up work)."""
+        if self._chat is None:
+            self._chat = ChatWindow(self.api)
+            self._chat.animation.connect(self._on_chat_animation)
+            self._chat.motion.connect(self.perform_motion)
+        if not self.isVisible():
+            self.appear()
+        if not self._chat.isVisible():
+            # load the model now, while the user types: the first reply is
+            # warm (it unloads again when idle / the chat closes)
+            self._call_api("post", "/ai/warm")
+        self._chat.open_near(self._anchor())
+        self._touch()
+
+    def _on_chat_animation(self, pose: str) -> None:
+        if pose == "thinking":
+            self._react("thinking", duration_ms=ASK_TIMEOUT_S * 1000)
+        else:
+            self._react(pose, _reaction_ms(pose))
         self._touch()
 
     def _action_drink_reminder(self) -> None:
@@ -459,6 +597,8 @@ class CharacterWindow(QWidget):
     def _action_quit(self) -> None:
         self._bubble.close()
         self._guard_banner.close()
+        if self._chat is not None:
+            self._chat.hide()
         for popup in (self._water_popup, self._commands_panel, self._question_popup):
             if _alive_visible(popup):
                 popup.close()
@@ -474,7 +614,7 @@ class CharacterWindow(QWidget):
     # -- server-pushed events (water, doomscroll guard, unused apps) ------
     # events that need the user's attention bring Bro out of the tray
     _ATTENTION_EVENTS = {"water_due", "nag", "countdown_start", "countdown_tick",
-                         "tab_closed", "idle_app"}
+                         "tab_closed", "idle_app", "character_act"}
 
     def _on_server_event(self, payload: dict) -> None:
         handler = {
@@ -486,6 +626,7 @@ class CharacterWindow(QWidget):
             "cancelled": self._on_guard_cleared,
             "idle_app": self._on_idle_app,
             "idle_app_cleared": self._on_idle_app_cleared,
+            "character_act": self._on_character_act,
         }.get(payload.get("type"))
         if handler is None:
             return

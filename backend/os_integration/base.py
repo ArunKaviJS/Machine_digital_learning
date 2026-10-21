@@ -44,6 +44,17 @@ class OSAdapter(ABC):
         """Visible top-level app windows: [{'hwnd', 'pid', 'process_name',
         'title'}], excluding this process."""
 
+    def set_window_state(self, hwnd: int, state: str) -> bool:
+        """Minimize / maximize one window directly (like its caption
+        button). False if unsupported — callers then send the shortcut."""
+        return False
+
+    def caption_button_point(self, hwnd: int, kind: str) -> tuple[int, int] | None:
+        """Screen point of a window's caption button — kind = close /
+        maximize / minimize, or close_tab (estimated) — so the character can
+        walk there. None if unknown."""
+        return None
+
     @abstractmethod
     def close_window(self, hwnd: int) -> bool:
         """Politely ask a window to close (same as clicking its X) — the app
@@ -53,3 +64,24 @@ class OSAdapter(ABC):
     @abstractmethod
     def open_uri(self, uri: str) -> bool:
         """Open a URI such as ms-settings:display. True if started."""
+
+    # ---- agent hands: focus a window, type, press keys (no admin rights) ----
+
+    @abstractmethod
+    def focus_window(self, hwnd: int) -> bool:
+        """Restore + bring a window to the front. True if it is now foreground."""
+
+    @abstractmethod
+    def type_text(self, text: str, hwnd: int | None = None) -> bool:
+        """Type unicode text into the foreground window. With `hwnd`, stop as
+        soon as that window is no longer in front (keys must never land in
+        another app). True if all of it was sent."""
+
+    def wait_ready(self, hwnd: int, timeout: float = 2.0) -> bool:
+        """Block until `hwnd` is in front and can take keys. True if ready."""
+        return True
+
+    @abstractmethod
+    def send_keys(self, keys: list[str]) -> bool:
+        """Press a key combo, e.g. ['ctrl', 's'] or ['enter'], in the
+        foreground window. Names come from the agent's whitelist. True if sent."""

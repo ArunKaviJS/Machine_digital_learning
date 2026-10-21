@@ -15,8 +15,8 @@ from backend.db.connection import Database
 from backend.db.repositories.ai_repo import AiRepo
 from backend.router.intent import validate_intent
 
-from ai.prompts import build_messages
-from ai.ollama_client import OllamaClient
+from ai.llm import get_llm
+from ai.prompts import build_messages, intent_schema
 
 MAX_TEXT_CHARS = 300
 
@@ -27,7 +27,7 @@ class OllamaGateway:
                  clock: Callable[[], float] = time.time):
         self.db = db
         self.config = config
-        self.client = client if client is not None else OllamaClient(config)
+        self.client = client if client is not None else get_llm(config)
         self.clock = clock
 
     def parse_intent(self, text: str) -> dict[str, Any] | None:
@@ -38,7 +38,7 @@ class OllamaGateway:
         messages = build_messages(text, self.config)
 
         started = time.monotonic()
-        response = self.client.chat(messages)
+        response = self.client.chat(messages, schema=intent_schema(self.config))
         latency_ms = int((time.monotonic() - started) * 1000)
 
         intent = self._validate(response, text)

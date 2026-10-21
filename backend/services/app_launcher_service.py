@@ -16,6 +16,7 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from backend.os_integration.helpers import app_identity, process_label
+from backend.services.character_service import act_then
 
 APP_CACHE_SECONDS = 600.0
 _cache: dict[str, Any] = {"at": 0.0, "apps": []}
@@ -27,6 +28,10 @@ _DOMAIN = re.compile(r"^(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/\S*)?$", re.
 # Typos ("whatsap", "notpad", "calculater") score >= 0.9; a *different* app
 # sharing a prefix ("photoshop" vs "Photos") scores 0.8 — keep it out.
 MIN_FUZZY_RATIO = 0.85
+# everyday names whose Start-menu entry is called something else ("cmd"
+# otherwise matched "Git CMD" exactly, not Windows' Command Prompt)
+APP_ALIASES = {"cmd": "command prompt", "cmd prompt": "command prompt",
+               "command line": "command prompt", "ps": "windows powershell"}
 
 
 def _norm(text: str) -> str:
@@ -149,7 +154,8 @@ class AppLauncherService:
         """{'status': opened|opened_url|not_found|error, 'query', 'name'}."""
         query = query.strip()
         apps = self.installed_apps()
-        app = best_app_match(query, apps)
+        alias = APP_ALIASES.get(_norm(query))
+        app = (alias and best_app_match(alias, apps)) or best_app_match(query, apps)
         if app is None and _DOMAIN.match(query):
             ok = self.open_site(query)
             return {"status": "opened_url" if ok else "error", "query": query,
@@ -162,7 +168,7 @@ class AppLauncherService:
                     "name": app["name"]}
         return {"status": "not_found", "query": query, "name": None}
 
-    def close_app(self, query: str) -> dict[str, Any]:
+    def close_app(self, query: str, character: Any | None = None) -> dict[str, Any]:
         """{'status': closed|not_running|error, 'query', 'name', 'count'}.
         Closes every window of the best-matching running app."""
         query = query.strip()
@@ -191,6 +197,8 @@ class AppLauncherService:
             return {"status": "not_running", "query": query, "name": None, "count": 0}
         top = max(score for score, _ in scored)
         targets = [win for score, win in scored if score == top]
+        # the cat walks to the X of the app's window and presses it first
+        act_then(character, "close", targets[0]["hwnd"], app_identity(targets[0])[1])
         closed = sum(1 for win in targets if self.os_adapter.close_window(win["hwnd"]))
         return {"status": "closed" if closed else "error", "query": query,
                 "name": app_identity(targets[0])[1], "count": closed}

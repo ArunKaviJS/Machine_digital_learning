@@ -29,6 +29,7 @@ def droplet_icon(size: int = 64) -> QIcon:
 
 class BroTray(QObject):
     call = pyqtSignal()
+    chat = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, hotkey_text: str):
@@ -39,6 +40,7 @@ class BroTray(QObject):
         self.tray.activated.connect(self._on_activated)
         self._menu = QMenu()
         self._menu.addAction("Call Bro").triggered.connect(self.call)
+        self._menu.addAction("Chat with Bro").triggered.connect(self.chat)
         self._menu.addAction("Quit Bro").triggered.connect(self.quit_requested)
         self.tray.setContextMenu(self._menu)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import json
 from pathlib import Path
 import pytest
@@ -12,7 +14,7 @@ from backend.db.repositories.water_repo import WaterRepo
 from backend.main import create_app
 from tests.fakes import FakeOSAdapter
 
-TODAY = "2026-10-07"
+TODAY = date.today().isoformat()  # the endpoint reports the real today
 
 
 @pytest.fixture()

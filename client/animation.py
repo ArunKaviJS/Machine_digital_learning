@@ -13,6 +13,10 @@ VALID_ANIMATIONS = (
     "idle", "walk", "smile", "wave", "warn", "angry", "happy", "water",
     # extended character-state system (character spec, 2026-10-07):
     "greeting", "thinking", "answering", "confused", "working", "success", "sleep",
+    # speech-driven body animations (backend/router/emotes.py):
+    "dance", "jump", "spin", "laugh", "sad", "love", "nod", "shake", "run",
+    # walking to a window button and pressing it (character_act)
+    "reach", "press",
 )
 
 

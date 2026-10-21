@@ -91,7 +91,7 @@ def intent_schema(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_messages(text: str, config: dict[str, Any]) -> list[dict[str, str]]:
-    """[system] + few-shot pairs + [user] for POST /api/chat."""
+    """[system] + few-shot pairs + [user] for LLM.chat (ai/llm.py)."""
     messages = [{"role": "system", "content": system_prompt(config)}]
     for question, answer in FEWSHOT:
         messages.append({"role": "user", "content": question})

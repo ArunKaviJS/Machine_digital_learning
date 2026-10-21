@@ -19,8 +19,10 @@ class _Worker(QObject):
     finished = pyqtSignal(object)
     failed = pyqtSignal(str)
 
-    def __init__(self, base_url: str, token: str, method: str, path: str, kwargs: dict):
+    def __init__(self, base_url: str, token: str, method: str, path: str, kwargs: dict,
+                 timeout: float = 10.0):
         super().__init__()
+        self.timeout = timeout
         self.base_url = base_url
         self.token = token
         self.method = method
@@ -32,7 +34,7 @@ class _Worker(QObject):
             headers = {"X-Arun-Token": self.token}
             resp = httpx.request(
                 self.method, f"{self.base_url}{self.path}",
-                headers=headers, timeout=10.0, **self.kwargs,
+                headers=headers, timeout=self.timeout, **self.kwargs,
             )
             resp.raise_for_status()
             self.finished.emit(resp.json() if resp.content else {})
@@ -53,9 +55,10 @@ class ApiClient(QObject):
         # call() returns and the request silently never runs.
         self._jobs: list[tuple[QThread, _Worker]] = []
 
-    def call(self, method: str, path: str, on_done=None, on_error=None, **kwargs) -> None:
+    def call(self, method: str, path: str, on_done=None, on_error=None,
+             timeout: float = 10.0, **kwargs) -> None:
         thread = QThread()
-        worker = _Worker(self.base_url, self.token, method, path, kwargs)
+        worker = _Worker(self.base_url, self.token, method, path, kwargs, timeout)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         job = (thread, worker)

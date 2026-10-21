@@ -24,17 +24,10 @@ AI_CHECK_TTL = 30.0  # seconds: how long /health caches the Ollama ping
 
 def _ping_ai(cfg: dict[str, Any]) -> bool:
     """Cheap liveness check for Ollama; never raises."""
-    ai = cfg.get("ai", {})
-    if not ai.get("enabled"):
+    if not cfg.get("ai", {}).get("enabled"):
         return False
-    try:
-        resp = httpx.get(
-            f"{ai['host'].rstrip('/')}/api/tags",
-            timeout=min(2.0, float(ai.get("timeoutSeconds", 15))),
-        )
-        return resp.status_code == 200
-    except Exception:
-        return False
+    from ai.llm import get_llm
+    return get_llm(cfg).ping()
 
 
 @asynccontextmanager
@@ -53,6 +46,8 @@ async def lifespan(app: FastAPI):
     if cfg.get("ai", {}).get("enabled"):
         from backend.services.ai_gateway import OllamaGateway
 
+        # no warm-up here: the model loads when the chat opens (POST
+        # /ai/warm) and unloads when idle / the chat closes, to save RAM
         app.state.ai_gateway = OllamaGateway(app.state.db, cfg)
     else:
         app.state.ai_gateway = None
@@ -62,12 +57,27 @@ async def lifespan(app: FastAPI):
 
     adapter = getattr(app.state, "os_adapter", None) or get_os_adapter(cfg)
     app.state.os_adapter = adapter
+    from backend.services.character_service import CharacterActs
+
+    # walk-to-the-button-and-press animations before close/minimize
+    app.state.notifications.bind_loop(asyncio.get_running_loop())
+    app.state.character = CharacterActs(app.state.notifications, adapter)
+    if app.state.ai_gateway is not None and cfg["ai"].get("agent", {}).get("enabled", True):
+        from backend.services.agent_service import AgentService
+
+        # shares the gateway's client: one lock = one model call at a time
+        app.state.agent = AgentService(app.state.db, cfg, adapter,
+                                       client=app.state.ai_gateway.client,
+                                       character=app.state.character)
+    else:
+        app.state.agent = None
     app.state.guard = GuardService(app.state.db, cfg, adapter,
                                    notifications=app.state.notifications)
     from backend.services.idle_app_service import IdleAppService
 
     app.state.idle_apps = IdleAppService(cfg, adapter,
-                                         is_paused=app.state.guard.is_paused)
+                                         is_paused=app.state.guard.is_paused,
+                                         character=app.state.character)
 
     tracker_task = None
     water_task = None
@@ -101,6 +111,9 @@ async def lifespan(app: FastAPI):
         guard_task.cancel()
     if idle_apps_task:
         idle_apps_task.cancel()
+    if getattr(app.state, "start_services", True) and app.state.ai_gateway is not None:
+        # Arun is quitting: give the model's RAM back right away
+        await asyncio.to_thread(app.state.ai_gateway.client.unload)
     app.state.db.close()
     logger.info("backend shutting down")
 
@@ -119,7 +132,10 @@ def create_app(config: dict[str, Any] | None = None,
     app.add_middleware(SecurityMiddleware)
 
     from backend.api.apps import router as apps_router
+    from backend.api.ai import router as ai_router
+    from backend.api.character import router as character_router
     from backend.api.ask import router as ask_router
+    from backend.api.chat import router as chat_router
     from backend.api.data import router as data_router
     from backend.api.guard import router as guard_router
     from backend.api.quick import router as quick_router
@@ -134,6 +150,7 @@ def create_app(config: dict[str, Any] | None = None,
 
     app.include_router(quick_router)
     app.include_router(ask_router)
+    app.include_router(chat_router)
     app.include_router(water_router)
     app.include_router(guard_router)
     app.include_router(tidy_router)
@@ -143,6 +160,8 @@ def create_app(config: dict[str, Any] | None = None,
     app.include_router(system_router)
     app.include_router(ws_router)
     app.include_router(apps_router)
+    app.include_router(character_router)
+    app.include_router(ai_router)
     app.state.pending = PendingConfirmation()
     app.state.notifications = NotificationManager()
 

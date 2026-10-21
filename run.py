@@ -91,6 +91,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("backend failed to become healthy")
         return 1
     start_client(cfg)
+    if cfg.get("ai", {}).get("enabled"):
+        # the backend thread dies with the process: free the model's RAM first
+        from ai.llm import get_llm
+        get_llm(cfg).unload()
     return 0
 
 

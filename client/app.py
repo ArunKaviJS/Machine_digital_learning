@@ -44,6 +44,7 @@ def run_client(config: dict[str, Any]) -> int:
     hotkey_text = config.get("callHotkey", "Ctrl+Alt+B")
     tray = BroTray(hotkey_text)
     tray.call.connect(window.toggle)
+    tray.chat.connect(window.open_chat)
     tray.quit_requested.connect(window.quit_app)
     tray.show()
     hotkey = GlobalHotkey(hotkey_text)

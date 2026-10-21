@@ -9,6 +9,7 @@ import pytest
 
 from backend.services.ai_gateway import MAX_TEXT_CHARS, OllamaGateway
 from ai.ollama_client import OllamaClient
+from ai.prompts import intent_schema
 from backend.db.connection import Database
 from backend.db.migrations import migrate
 from backend.db.repositories.ai_repo import AiRepo
@@ -34,7 +35,7 @@ class FakeClient:
         self.active = 0
         self.max_active = 0
 
-    def chat(self, messages):
+    def chat(self, messages, **kwargs):
         self.messages = messages
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -47,7 +48,7 @@ class FakeClient:
 
 
 class ExplodingClient:
-    def chat(self, messages):
+    def chat(self, messages, **kwargs):
         raise AssertionError("client must not be called")
 
 
@@ -159,7 +160,8 @@ def test_client_builds_correct_payload():
         return FakeResponse({"message": {"content": "{}"}})
 
     client = make_client(post)
-    assert client.chat([{"role": "user", "content": "hi"}]) == \
+    # the intent schema belongs to the gateway (ai/llm.py is provider-only)
+    assert client.chat([{"role": "user", "content": "hi"}], schema=intent_schema(client.cfg)) == \
         {"message": {"content": "{}"}}
     assert seen["url"] == "http://localhost:11434/api/chat"
     assert seen["timeout"] == 15.0
@@ -171,8 +173,10 @@ def test_client_builds_correct_payload():
     assert schema["properties"]["target"]["type"] == ["string", "null"]
     assert payload["keep_alive"] == 0
     assert payload["model"] == "qwen2.5:0.5b"
+    # no separate agent model here: the one model serves the agents too, so it
+    # always runs with the agent's context size (switching sizes = reload)
     assert payload["options"] == {"temperature": 0, "num_predict": 120,
-                                  "num_ctx": 1024}
+                                  "num_ctx": 6144}
 
 
 def test_client_swallows_timeout_and_connection_errors():

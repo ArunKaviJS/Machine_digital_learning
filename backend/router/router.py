@@ -1,4 +1,5 @@
-"""QuestionRouter: pending yes/no → rules → execute → AI fallback → clarify.
+"""QuestionRouter: pending yes/no → agent (multi-step) → rules → AI intent
+→ agent fallback → clarify.
 
 Services are built per call from the injected db/config so the router is
 stateless apart from the shared PendingConfirmation store (SKILL §7, §10).
@@ -11,9 +12,11 @@ import time
 from typing import Any, Callable
 
 from backend.router.confirmations import PendingConfirmation
+from backend.router.emotes import apply_mood, match_emote, mood_animation
 from backend.router.intent import validate_intent
 from backend.router.rules import match_rules, normalise
 from backend.router.templates import fmt_clock, period_label, render_intent
+from backend.services.agent_service import needs_agent, window_command
 from backend.services.stats_service import StatsService
 from backend.services.usage_service import UsageService
 
@@ -31,20 +34,28 @@ BASELINE_LABELS = {"average": "your usual average", "yesterday": "yesterday",
 class QuestionRouter:
     def __init__(self, db, config, ai_gateway=None,
                  pending: PendingConfirmation | None = None,
-                 tidy_service=None, os_adapter=None,
+                 tidy_service=None, os_adapter=None, agent=None, character=None,
                  clock: Callable[[], float] = time.time,
                  today_fn: Callable[[], datetime.date] = datetime.date.today):
         self.db = db
         self.config = config
         self.ai_gateway = ai_gateway
+        self.agent = agent
         self.pending = pending or PendingConfirmation(clock=clock)
         self.tidy = tidy_service
         self.os_adapter = os_adapter
+        self.character = character  # walk-and-press animation before closing
         self.clock = clock
         self.today_fn = today_fn
 
     # -- public ----------------------------------------------------------
     def ask(self, text: str) -> dict[str, Any]:
+        result = self._ask(text)
+        if result["text"] != CLARIFICATION:  # no laughing while confused
+            result["animation"] = apply_mood(text, result["animation"])
+        return result
+
+    def _ask(self, text: str) -> dict[str, Any]:
         norm = normalise(text)
 
         # step 1: pending confirmation (yes/no words only mean something here)
@@ -57,15 +68,38 @@ class QuestionRouter:
                     self.pending.clear()
                     return _envelope("No problem, bro — cancelled.", "smile")
 
-        # step 2: rule-based router
+        # step 1b: body commands ("dance", "come here") -> instant animation
+        emote = match_emote(text)
+        if emote is not None:
+            return _envelope(emote["text"], emote["animation"],
+                             data={"motion": emote["motion"]})
+
+        # step 2: multi-step jobs / typing / "check my PC" -> the agent loop
+        # (a single rule would only do the first part, e.g. open Notepad)
+        if self.agent is not None and (needs_agent(text) or window_command(text)):
+            result = self.agent.run(text)
+            if result is not None:
+                return result
+
+        # step 3: rule-based router
         intent = validate_intent(match_rules(text, self.config), self.config)
 
-        # step 3: AI gateway (M7) when rules had no confident answer
-        if intent is None and self.ai_gateway is not None:
+        # step 4: AI gateway (M7) when rules had no confident answer. Small
+        # talk ("make me laugh", "thanks", "I'm tired") skips it: the 0.5B
+        # intent model forces it into a command (water status, undo…), so
+        # the agent answers it conversationally instead.
+        small_talk = self.agent is not None and mood_animation(text) is not None
+        if intent is None and self.ai_gateway is not None and not small_talk:
             intent = validate_intent(self.ai_gateway.parse_intent(text),
                                      self.config)
 
-        # step 4: execute, or ask the user to use a Quick Question
+        # step 5: nothing predefined fits -> let the agent think it through
+        if intent is None and self.agent is not None:
+            result = self.agent.run(text)
+            if result is not None:
+                return result
+
+        # step 6: execute, or ask the user to use a Quick Question
         if intent is None:
             return _envelope(CLARIFICATION, "idle")
         return self.execute(intent)
@@ -235,7 +269,8 @@ class QuestionRouter:
         return render_intent(intent, self._launcher().open_app(intent["target"]))
 
     def _do_close_app(self, intent: dict) -> tuple[str, str]:
-        return render_intent(intent, self._launcher().close_app(intent["target"]))
+        return render_intent(intent, self._launcher().close_app(intent["target"],
+                                                                character=self.character))
 
     def _do_open_settings(self, intent: dict) -> tuple[str, str]:
         from backend.services.system_service import SystemService

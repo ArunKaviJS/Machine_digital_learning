@@ -37,4 +37,5 @@ def client(cfg: dict) -> TestClient:
     app = create_app(cfg, start_services=False)  # no tracker/OS calls in API tests
     with TestClient(app, headers={"X-Arun-Token": app.state.api_token}) as c:
         c.app.state.ai_gateway = None  # API tests must never hit real Ollama
+        c.app.state.agent = None       # ...nor drive real apps on this PC
         yield c

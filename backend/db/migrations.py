@@ -13,8 +13,28 @@ from backend.db.connection import SCHEMA_PATH
 
 logger = logging.getLogger("arun.db")
 
+CHAT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id              TEXT PRIMARY KEY,
+    created_at      REAL NOT NULL,
+    updated_at      REAL NOT NULL,
+    request         TEXT NOT NULL DEFAULT '',
+    awaiting_answer INTEGER NOT NULL DEFAULT 0,
+    user_texts      TEXT NOT NULL DEFAULT '[]',
+    active_window   TEXT
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    seq        INTEGER NOT NULL,
+    role       TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    PRIMARY KEY (session_id, seq)
+);
+"""
+
 MIGRATIONS: list[tuple[int, str, str]] = [
     (1, "initial schema", SCHEMA_PATH.read_text(encoding="utf-8")),
+    (2, "chat context memory", CHAT_SCHEMA),
 ]
 
 

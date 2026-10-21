@@ -255,3 +255,17 @@ def test_post_ask_endpoint_garbage(client):
 
 def test_post_ask_empty_text_is_validation_error(client):
     assert client.post("/ask", json={"text": ""}).status_code == 422
+
+
+def test_small_talk_skips_intent_parser_and_goes_to_agent(db):
+    class Gateway:
+        def parse_intent(self, text):
+            raise AssertionError("small talk must not reach the intent parser")
+
+    class Agent:
+        def run(self, text):
+            return {"text": "Why did the droplet blush?", "animation": "answering",
+                    "needs_confirmation": False, "proposal_id": None, "data": {}}
+
+    r = QuestionRouter(db, {}, ai_gateway=Gateway(), agent=Agent()).ask("make me laugh")
+    assert r["text"] == "Why did the droplet blush?" and r["animation"] == "laugh"

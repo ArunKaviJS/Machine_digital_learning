@@ -26,6 +26,10 @@ class FakeOSAdapter(OSAdapter):
         self.windows: list[dict[str, Any]] = []
         self.closed: list[int] = []
         self.opened_uris: list[str] = []
+        # agent hands
+        self.typed: list[str] = []
+        self.waited: list[int] = []
+        self.keys_sent: list[list[str]] = []
 
     def get_foreground_window(self) -> dict[str, Any] | None:
         return self.foreground
@@ -59,6 +63,27 @@ class FakeOSAdapter(OSAdapter):
 
     def open_uri(self, uri: str) -> bool:
         self.opened_uris.append(uri)
+        return True
+
+    def focus_window(self, hwnd: int) -> bool:
+        for w in self.list_windows():
+            if w["hwnd"] == hwnd:
+                self.foreground = w
+                return True
+        return False
+
+    def type_text(self, text: str, hwnd: int | None = None) -> bool:
+        if hwnd is not None and (self.foreground or {}).get("hwnd") != hwnd:
+            return False  # target not in front: nothing typed (like the real adapter)
+        self.typed.append(text)
+        return True
+
+    def wait_ready(self, hwnd: int, timeout: float = 2.0) -> bool:
+        self.waited.append(hwnd)
+        return (self.foreground or {}).get("hwnd") == hwnd
+
+    def send_keys(self, keys: list[str]) -> bool:
+        self.keys_sent.append(list(keys))
         return True
 
 

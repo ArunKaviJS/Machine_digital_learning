@@ -16,6 +16,21 @@ LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 _CONFIGURED = False
 
 
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """Windows can't rename a log file another process has open (a second
+    Arun / backend-only run): RotatingFileHandler then printed a
+    PermissionError traceback for EVERY log line. Skip that rotation and
+    keep logging; the next rollover tries again."""
+
+    def doRollover(self) -> None:  # noqa: N802 (logging API)
+        try:
+            super().doRollover()
+        except PermissionError:
+            if self.stream is None:
+                self.stream = self._open()
+            self.maxBytes *= 2  # don't retry on every single line
+
+
 def log_dir() -> Path:
     return default_user_config_dir() / "logs"
 
@@ -33,7 +48,7 @@ def setup_logging(level: int = logging.INFO, log_path: Path | None = None) -> Pa
 
     formatter = logging.Formatter(LOG_FORMAT)
 
-    file_handler = RotatingFileHandler(
+    file_handler = SafeRotatingFileHandler(
         path, maxBytes=1_000_000, backupCount=5, encoding="utf-8"
     )
     file_handler.setFormatter(formatter)

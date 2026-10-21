@@ -8,12 +8,14 @@ import pytest
 
 from backend.db import open_db
 from backend.db.connection import Database, get_meta, set_meta
-from backend.db.migrations import current_version, migrate
+from backend.db.migrations import MIGRATIONS, current_version, migrate
 from backend.db.repositories.ai_repo import AiRepo
 from backend.db.repositories.guard_repo import GuardRepo
 from backend.db.repositories.tidy_repo import TidyRepo
 from backend.db.repositories.usage_repo import UsageRepo
 from backend.db.repositories.water_repo import WaterRepo
+
+LATEST = max(v for v, _, _ in MIGRATIONS)
 
 TABLES = {"usage_sessions", "water_events", "tidy_batches", "tidy_moves",
           "guard_events", "ai_calls", "meta"}
@@ -30,7 +32,7 @@ def test_fresh_memory_db_has_schema():
     db = Database(":memory:")
     migrate(db.raw)
     assert TABLES <= table_names(db)
-    assert get_meta(db, "schema_version") == "1"
+    assert get_meta(db, "schema_version") == str(LATEST)
     db.close()
 
 
@@ -38,8 +40,8 @@ def test_migrate_is_idempotent():
     db = Database(":memory:")
     v1 = migrate(db.raw)
     v2 = migrate(db.raw)
-    assert v1 == v2 == 1
-    assert current_version(db.raw) == 1
+    assert v1 == v2 == LATEST
+    assert current_version(db.raw) == LATEST
     db.close()
 
 
@@ -50,7 +52,7 @@ def test_migrate_file_db_roundtrip(tmp_path: Path):
     db.close()
     db2 = open_db(path=path)  # reopen: data persists, no duplicate work
     assert get_meta(db2, "heartbeat") == "2026-10-07T10:00:00"
-    assert get_meta(db2, "schema_version") == "1"
+    assert get_meta(db2, "schema_version") == str(LATEST)
     db2.close()
 
 

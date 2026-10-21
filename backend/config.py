@@ -22,9 +22,14 @@ VALID_ANIMATIONS = {
     "idle", "walk", "smile", "wave", "warn", "angry", "happy", "water",
     # extended character-state system (character spec, 2026-10-07):
     "greeting", "thinking", "answering", "confused", "working", "success", "sleep",
+    # speech-driven body animations (backend/router/emotes.py):
+    "dance", "jump", "spin", "laugh", "sad", "love", "nod", "shake", "run",
+    # walking to a window button and pressing it (character_act)
+    "reach", "press",
 }
 VALID_CLOSE_MODES = {"tabs", "window"}
 VALID_PRESENCE = {"on_demand", "always"}
+VALID_CHARACTER_STYLES = {"cat", "droplet"}  # procedural SVG characters
 KNOWN_INTENTS = {
     "usage_query", "compare_usage", "top_app", "screen_time", "longest_session",
     "most_active_hour", "compare_days", "water_status", "log_water",
@@ -78,6 +83,8 @@ def validate_config(cfg: dict[str, Any]) -> None:
         raise ConfigError("userName must be a non-empty string")
     if not isinstance(cfg.get("character"), str) or not cfg["character"].strip():
         raise ConfigError("character must be a non-empty string")
+    if cfg.get("characterStyle", "cat") not in VALID_CHARACTER_STYLES:
+        raise ConfigError(f"characterStyle must be one of {sorted(VALID_CHARACTER_STYLES)}")
 
     for key in ("backendPort", "fps", "waterIntervalMinutes", "waterDailyTarget",
                 "waterSnoozeMinutes", "nagAfterMinutes", "closeAfterMinutes",
@@ -143,6 +150,19 @@ def validate_config(cfg: dict[str, Any]) -> None:
         raise ConfigError("ai.timeoutSeconds must be positive")
     if not isinstance(ai.get("logPrompts"), bool):
         raise ConfigError("ai.logPrompts must be a boolean")
+    agent = ai.get("agent", {})
+    if not isinstance(agent, dict):
+        raise ConfigError("ai.agent must be an object")
+    if not isinstance(agent.get("enabled", True), bool):
+        raise ConfigError("ai.agent.enabled must be a boolean")
+    steps = agent.get("maxSteps", 8)
+    if not isinstance(steps, int) or isinstance(steps, bool) or not 1 <= steps <= 20:
+        raise ConfigError("ai.agent.maxSteps must be an integer 1-20")
+    t = agent.get("timeoutSeconds", 60)
+    if not isinstance(t, (int, float)) or isinstance(t, bool) or t <= 0:
+        raise ConfigError("ai.agent.timeoutSeconds must be positive")
+    if not isinstance(agent.get("model", ""), str):
+        raise ConfigError("ai.agent.model must be a string (empty = ai.model)")
 
 
 def ensure_user_config(path: Path | None = None) -> Path:

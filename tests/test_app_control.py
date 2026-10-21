@@ -249,3 +249,15 @@ def test_router_close_tracked_site_still_closes_the_tab_not_the_browser(router, 
     fake.windows = [_win(9, "chrome.exe", "YouTube - Google Chrome")]
     router.ask("close the youtube tab")
     assert fake.close_tab_calls == 1 and fake.closed == []
+
+
+def test_cmd_alias_opens_command_prompt_not_git_cmd():
+    from backend.services.app_launcher_service import AppLauncherService, clear_app_cache
+    from tests.fakes import FakeOSAdapter
+    clear_app_cache()
+    fake = FakeOSAdapter()
+    fake.apps = [{"name": "Git CMD", "app_id": "git"},
+                 {"name": "Command Prompt", "app_id": "cmd.exe"}]
+    res = AppLauncherService(fake).open_app("cmd")
+    assert res["name"] == "Command Prompt" and fake.launched == ["cmd.exe"]
+    clear_app_cache()

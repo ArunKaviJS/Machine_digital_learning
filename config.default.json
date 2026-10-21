@@ -1,13 +1,16 @@
 {
   "userName": "Arun",
   "character": "arun",
+  "characterStyle": "cat",
   "walking": true,
   "walkFacesRight": true,
   "presence": "on_demand",
   "callHotkey": "Ctrl+Alt+B",
   "autoHideSeconds": 45,
   "idleAppMinutes": 30,
-  "idleAppIgnore": ["ollama app.exe"],
+  "idleAppIgnore": [
+    "ollama app.exe"
+  ],
   "fps": 24,
   "backendHost": "127.0.0.1",
   "backendPort": 8765,
@@ -15,10 +18,17 @@
   "waterIntervalMinutes": 45,
   "waterDailyTarget": 8,
   "waterSnoozeMinutes": 10,
-  "distractingSites": ["youtube.com", "instagram.com"],
+  "distractingSites": [
+    "youtube.com",
+    "instagram.com"
+  ],
   "siteMatchers": {
-    "youtube.com": ["YouTube"],
-    "instagram.com": ["Instagram"]
+    "youtube.com": [
+      "YouTube"
+    ],
+    "instagram.com": [
+      "Instagram"
+    ]
   },
   "nagAfterMinutes": 15,
   "closeAfterMinutes": 25,
@@ -31,16 +41,39 @@
   "maxGapSeconds": 120,
   "trackAllApps": true,
   "storeTitles": false,
-  "browsers": ["chrome.exe", "msedge.exe", "brave.exe", "firefox.exe", "opera.exe", "vivaldi.exe"],
-  "dndApps": ["zoom.exe", "teams.exe", "ms-teams.exe"],
-  "tidyFolders": ["downloads", "desktop", "documents", "pictures", "videos"],
+  "browsers": [
+    "chrome.exe",
+    "msedge.exe",
+    "brave.exe",
+    "firefox.exe",
+    "opera.exe",
+    "vivaldi.exe"
+  ],
+  "dndApps": [
+    "zoom.exe",
+    "teams.exe",
+    "ms-teams.exe"
+  ],
+  "tidyFolders": [
+    "downloads",
+    "desktop",
+    "documents",
+    "pictures",
+    "videos"
+  ],
   "demoMode": false,
   "ai": {
     "enabled": true,
     "host": "http://localhost:11434",
-    "model": "qwen2.5:0.5b-instruct",
-    "timeoutSeconds": 15,
-    "keepAlive": "5m",
-    "logPrompts": false
+    "model": "qwen2.5:1.5b",
+    "timeoutSeconds": 60,
+    "keepAlive": "2m",
+    "logPrompts": false,
+    "agent": {
+      "enabled": true,
+      "maxSteps": 8,
+      "model": "",
+      "timeoutSeconds": 60
+    }
   }
 }

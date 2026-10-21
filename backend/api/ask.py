@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from backend.router.confirmations import PendingConfirmation
 from backend.router.router import QuestionRouter
 from backend.router.schemas import AskResponse
+from backend.agents.base import AgentContext
+from backend.agents.main_agent import MainAgent
 
 router = APIRouter()
 
@@ -26,5 +28,8 @@ def ask(body: AskRequest, request: Request) -> AskResponse:
         pending=app.pending,
         tidy_service=getattr(app, "tidy_service", None),
         os_adapter=getattr(app, "os_adapter", None),
+        character=getattr(app, "character", None),
+        # the main agent assigns a sub-agent when a job needs the think loop
+        agent=MainAgent(AgentContext.from_state(app)) if getattr(app, "agent", None) else None,
     )
     return AskResponse(**router_obj.ask(body.text))
